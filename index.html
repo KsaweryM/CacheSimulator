@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Symulator cache direct-mapped</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F3F5F7; --surface:#FFFFFF; --sunken:#EAEEF2; --ink:#16202B; --muted:#5B6673; --rule:#D5DBE1;
+  --tag:#6D4FC2; --tag-bg:#EEE9FB; --idx:#0E7F7B; --idx-bg:#E1F4F2; --off:#A86A12; --off-bg:#FBF0DC;
+  --hit:#1E7E4F; --hit-bg:#E2F3EA; --miss:#B8372B; --miss-bg:#FBE7E4; --focus:#2F6FDB;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1419; --surface:#171E26; --sunken:#1E2731; --ink:#E6EBF0; --muted:#93A0AD; --rule:#2B3542;
+    --tag:#B3A1F0; --tag-bg:#2A2248; --idx:#5FD0C9; --idx-bg:#123533; --off:#E8B25A; --off-bg:#3A2A10;
+    --hit:#5FD19A; --hit-bg:#15352A; --miss:#F08A7E; --miss-bg:#3E1C19; --focus:#7FA8F0;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1419; --surface:#171E26; --sunken:#1E2731; --ink:#E6EBF0; --muted:#93A0AD; --rule:#2B3542;
+  --tag:#B3A1F0; --tag-bg:#2A2248; --idx:#5FD0C9; --idx-bg:#123533; --off:#E8B25A; --off-bg:#3A2A10;
+  --hit:#5FD19A; --hit-bg:#15352A; --miss:#F08A7E; --miss-bg:#3E1C19; --focus:#7FA8F0;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.55}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 60px}
+header h1{font-size:26px;font-weight:600;margin:0 0 4px;letter-spacing:-0.01em}
+header p{margin:0;color:var(--muted);max-width:70ch}
+.layout{display:grid;grid-template-columns:320px minmax(0,1fr);gap:20px;margin-top:22px;align-items:start}
+@media (max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:16px 18px}
+.side{display:flex;flex-direction:column;gap:14px}
+@media (min-width:901px){.side{position:sticky;top:calc(16px + env(safe-area-inset-top,0px))}}
+.main{display:flex;flex-direction:column;gap:14px;min-width:0}
+h2{font-size:16px;font-weight:600;margin:0 0 10px}
+label{display:block;font-size:13px;color:var(--muted);margin:0 0 4px}
+.field{margin-bottom:10px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+select,input{width:100%;font:inherit;font-family:var(--mono);font-size:14px;color:var(--ink);background:var(--sunken);border:1px solid var(--rule);border-radius:6px;padding:7px 9px}
+button{font:inherit;font-size:14px;font-weight:500;color:var(--ink);background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:7px 12px;cursor:pointer}
+button:hover{background:var(--sunken)}
+button.primary{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+button.primary:hover{opacity:.9}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.note{font-size:13px;color:var(--muted);margin:6px 0 0}
+.err{font-size:13px;color:var(--miss);margin:6px 0 0;min-height:1em}
+.presets{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
+.presets button{padding:6px 0;font-size:13px}
+.mono{font-family:var(--mono)}
+.t{color:var(--tag)} .i{color:var(--idx)} .o{color:var(--off)}
+
+.addr-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.addr-big{font-family:var(--mono);font-size:28px;font-weight:500;letter-spacing:.02em}
+.badge{font-size:13px;font-weight:600;padding:4px 10px;border-radius:999px}
+.badge.hit{background:var(--hit-bg);color:var(--hit)} .badge.miss{background:var(--miss-bg);color:var(--miss)}
+.bits-scroll{overflow-x:auto;margin:14px 0 6px}
+.bits{display:flex;gap:2px;font-family:var(--mono);font-size:14px;min-width:max-content}
+.bit{width:20px;text-align:center;padding:4px 0;border-radius:3px}
+.bit.t{background:var(--tag-bg)} .bit.i{background:var(--idx-bg)} .bit.o{background:var(--off-bg)}
+.bit.gap{margin-left:6px}
+.bitnums{display:flex;gap:2px;font-family:var(--mono);font-size:11px;color:var(--muted);min-width:max-content}
+.bitnums span{width:20px;text-align:center}
+.bitnums span.gap{margin-left:6px}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;margin-top:8px}
+.legend b{font-weight:500}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:0}
+.calc{margin-top:14px;font-family:var(--mono);font-size:14px;line-height:1.9;background:var(--sunken);border-radius:8px;padding:10px 14px;overflow-x:auto;white-space:nowrap}
+.why{margin-top:10px;font-size:14px}
+.empty{color:var(--muted);font-size:14px;margin:0}
+
+.tbl-scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th{font-size:12px;font-weight:500;color:var(--muted);text-align:left;padding:6px 10px;border-bottom:1px solid var(--rule);white-space:nowrap}
+td{padding:6px 10px;border-bottom:1px solid var(--rule);font-family:var(--mono);white-space:nowrap}
+tr.cur-hit td{background:var(--hit-bg)} tr.cur-miss td{background:var(--miss-bg)}
+td.dim{color:var(--muted)}
+.hm{font-weight:600} .hm.h{color:var(--hit)} .hm.m{color:var(--miss)}
+
+.grid-scroll{overflow-x:auto}
+.mgrid{display:grid;gap:3px;min-width:max-content}
+.mgrid .hd{font-size:11px;color:var(--idx);text-align:center;font-family:var(--mono);padding-bottom:2px}
+.mgrid .rl{font-size:11px;color:var(--tag);font-family:var(--mono);display:flex;align-items:center;justify-content:flex-end;padding-right:6px;white-space:nowrap}
+.cell{white-space:nowrap;font-family:var(--mono);font-size:12px;padding:7px 10px;text-align:center;border:1px solid var(--rule);border-radius:5px;background:var(--surface);color:var(--ink);cursor:pointer}
+.cell:hover{border-color:var(--muted)}
+.cell.col{background:var(--idx-bg)}
+.cell.in{background:var(--sunken);border-color:var(--idx);font-weight:500}
+.cell.now{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px}
+.stat{background:var(--sunken);border-radius:8px;padding:8px 12px}
+.stat span{display:block;font-size:12px;color:var(--muted)}
+.stat b{font-family:var(--mono);font-size:20px;font-weight:500}
+.hist-scroll{max-height:360px;overflow:auto}
+.code{margin:0;font-family:var(--mono);font-size:13.5px;line-height:1.6;background:var(--sunken);border-radius:8px;padding:12px 16px;overflow-x:auto;white-space:pre}
+.code .c{color:var(--muted)} .code .k{color:var(--tag)} .code .n{color:var(--off);font-weight:500}
+@media (max-width:520px){.stats{grid-template-columns:repeat(2,1fr)}.addr-big{font-size:22px}}
+@media (prefers-reduced-motion:no-preference){.flash{animation:fl .5s ease-out}@keyframes fl{from{outline:3px solid var(--focus)}to{outline:3px solid transparent}}}
+
+.progs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}
+.progs button{padding:8px 6px;font-size:13px;text-align:left;line-height:1.3}
+.progs button small{display:block;font-weight:400;color:var(--muted);font-size:12px}
+.progs button.on{border-color:var(--ink);background:var(--sunken)}
+.progs button.on small{color:var(--ink)}
+details{margin-top:8px;font-size:13px;color:var(--muted)} summary{cursor:pointer}
+.code-h{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:14px 0 6px}
+.code-h:first-of-type{margin-top:0}
+.code-h h3{font-size:14px;font-weight:600;margin:0}
+.code-h button{padding:4px 10px;font-size:13px}
+td.w{font-size:13px} td.w.dim{color:var(--muted)}
+td.w.acc{outline:2px solid var(--ink);outline-offset:-3px;border-radius:4px;font-weight:500}
+.valline{margin-top:6px;font-size:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Symulator cache direct-mapped</h1>
+  <p>Wybierz program albo wpisz adres i zobacz, do którego bloku, linii i z jakim tagiem trafia każdy odczyt. Cache pamięta, co już wczytał, więc kolejne odczyty dają hit albo miss tak jak w Ripes.</p>
+</header>
+
+<div class="layout">
+<aside class="side">
+  <section class="panel">
+    <h2>Budowa cache</h2>
+    <div class="two">
+      <div class="field"><label for="lines">Liczba linii</label>
+        <select id="lines"><option>1</option><option>2</option><option selected>4</option><option>8</option><option>16</option><option>32</option><option>64</option></select></div>
+      <div class="field"><label for="bsize">Rozmiar bloku</label>
+        <select id="bsize" style="font-family:var(--sans)"><option value="4" selected>1 słowo (4 B)</option><option value="8">2 słowa (8 B)</option><option value="16">4 słowa (16 B)</option><option value="32">8 słów (32 B)</option><option value="64">16 słów (64 B)</option></select></div>
+    </div>
+    <p class="note" id="capacity"></p>
+    <p class="note">Zmiana budowy czyści cache i uruchamia wybrany program od początku.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Programy</h2>
+    <div class="progs">
+      <button data-p="1">Program 1<small>tablica dwa razy</small></button>
+      <button data-p="2">Program 2<small>co czwarty element</small></button>
+      <button data-p="3">Program 3<small>macierz wierszami</small></button>
+      <button data-p="4">Program 4<small>macierz kolumnami</small></button>
+    </div>
+    <p class="note" id="progDesc" style="margin:0">Wybierz program. Pojawi się jego kod w C i w asemblerze RISC-V, a odczyty trafią do kolejki.</p>
+    <details id="progExp" style="display:none"><summary>Pokaż przewidywany hit rate</summary><div id="progExpBody" style="margin-top:6px"></div></details>
+  </section>
+
+  <section class="panel">
+    <h2>Wykonanie</h2>
+    <div class="row"><button id="stepBtn">Krok</button><button class="primary" id="allBtn">Wykonaj wszystko</button><button id="restartBtn">Od początku</button></div>
+    <p class="note" id="queueInfo">Nic nie jest załadowane.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Pojedynczy odczyt</h2>
+    <div class="field"><label for="addr">Adres (hex z 0x albo dziesiętnie)</label>
+      <input id="addr" value="0x10000000" autocomplete="off" spellcheck="false"></div>
+    <div class="row"><button class="primary" id="readBtn">Odczytaj</button></div>
+    <p class="err" id="addrErr"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Własna sekwencja</h2>
+    <div class="field"><label for="sStart">Adres początkowy</label><input id="sStart" value="0x10000000"></div>
+    <div class="two">
+      <div class="field"><label for="sStride">Krok (bajty)</label><input id="sStride" value="4"></div>
+      <div class="field"><label for="sN">Odczytów na przebieg</label><input id="sN" value="8"></div>
+    </div>
+    <div class="field"><label for="sPasses">Liczba przebiegów</label><input id="sPasses" value="2"></div>
+    <div class="row"><button id="loadBtn">Załaduj</button></div>
+    <p class="err" id="seqErr"></p>
+  </section>
+</aside>
+
+<main class="main">
+  <section class="panel" id="codePanel" style="display:none">
+    <h2 id="codeTitle">Kod</h2>
+    <div class="code-h"><h3>C</h3><button data-copy="c">Kopiuj</button></div>
+    <pre class="code" id="cBox"></pre>
+    <div class="code-h"><h3>RISC-V (do wklejenia w Ripes)</h3><button data-copy="asm">Kopiuj</button></div>
+    <pre class="code" id="asmBox"></pre>
+    <p class="note" id="codeNote"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Ostatni odczyt</h2>
+    <div id="last"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Zawartość cache</h2>
+    <div class="tbl-scroll"><table>
+      <thead id="cacheHead"></thead>
+      <tbody id="cacheBody"></tbody>
+    </table></div>
+    <p class="note">Obramowane słowo to to, które odczytał ostatni <span class="mono">lw</span>. Słowa bez nazwy nie należą do żadnej tablicy programu i mają wartość 0.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Pamięć ułożona w kolumny</h2>
+    <p class="note" style="margin:0 0 10px">Kolumna to <span class="i">linia</span>, wiersz to <span class="t">tag</span>. Obramowane bloki są teraz w cache. Kliknij blok, żeby go odczytać.</p>
+    <div class="grid-scroll"><div class="mgrid" id="mgrid"></div></div>
+    <div class="row" style="margin-top:10px"><button id="upBtn">Wiersze wyżej</button><button id="downBtn">Wiersze niżej</button></div>
+  </section>
+
+  <section class="panel">
+    <h2>Historia odczytów</h2>
+    <div class="stats">
+      <div class="stat"><span>Odczyty</span><b id="stN">0</b></div>
+      <div class="stat"><span>Hity</span><b id="stH">0</b></div>
+      <div class="stat"><span>Missy</span><b id="stM">0</b></div>
+      <div class="stat"><span>Hit rate</span><b id="stR">–</b></div>
+    </div>
+    <div class="hist-scroll"><table>
+      <thead><tr><th>#</th><th>Adres</th><th>Odczytano</th><th>Blok</th><th>Linia</th><th>Tag</th><th>Wynik</th><th>Co się stało</th></tr></thead>
+      <tbody id="histBody"></tbody>
+    </table></div>
+  </section>
+</main>
+</div>
+</div>
+
+<script>
+(function(){
+const MAXA=0xFFFFFFFF, ROWS=8, BASE=0x10000000;
+let L=4,B=4,lines=[],hist=[],seen=new Set(),queue=[],total=0,last=null,rowBase=null;
+let mem=new Map(), source=null, code=null;
+const $=id=>document.getElementById(id);
+const log2=n=>Math.round(Math.log2(n));
+const words=b=>{const w=b/4;return w+' '+(w===1?'słowo':(w>=2&&w<=4?'słowa':'słów'));};
+const hex=(n,w)=>'0x'+n.toString(16).toUpperCase().padStart(w||1,'0');
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const pct=x=>(Math.round(x*1000)/10).toString().replace('.',',')+'%';
+
+function parse(s){
+  s=String(s).trim().replace(/_/g,'');
+  let v=null;
+  if(/^0x[0-9a-f]+$/i.test(s)) v=parseInt(s.slice(2),16);
+  else if(/^\d+$/.test(s)) v=parseInt(s,10);
+  if(v===null||!isFinite(v)||v<0||v>MAXA) return null;
+  return v;
+}
+function word(addr){const a=addr-(addr%4);return mem.get(a)||{name:'',value:0};}
+function wordLabel(w){return w.name?w.name+' = '+w.value:hex(w.value,8);}
+
+/* ---------- dane programów ---------- */
+function layout(arrs){
+  const m=new Map(),start={};let a=BASE;
+  arrs.forEach(r=>{start[r.name]=a;
+    if(r.rows){for(let i=0;i<r.rows;i++)for(let j=0;j<r.cols;j++){m.set(a,{name:r.name+'['+i+']['+j+']',value:r.f(i,j)});a+=4;}}
+    else{for(let i=0;i<r.cols;i++){m.set(a,{name:r.name+'['+i+']',value:r.f(i)});a+=4;}}
+  });
+  return {m,start};
+}
+function cDecl(r){
+  if(r.rows){
+    const rows=[];for(let i=0;i<r.rows;i++){const v=[];for(let j=0;j<r.cols;j++)v.push(String(r.f(i,j)).padStart(2));rows.push('    {'+v.join(', ')+'}');}
+    return 'int '+r.name+'['+r.rows+']['+r.cols+'] = {\n'+rows.join(',\n')+'\n};';
+  }
+  const v=[];for(let i=0;i<r.cols;i++)v.push(r.f(i));
+  return 'int '+r.name+'['+r.cols+'] = {'+v.join(', ')+'};';
+}
+function asmData(r){
+  const out=[];
+  if(r.rows){for(let i=0;i<r.rows;i++){const v=[];for(let j=0;j<r.cols;j++)v.push(r.f(i,j));out.push([i?'':r.name+':','.word '+v.join(', '),'# '+r.name+'['+i+'][…]']);}}
+  else{const v=[];for(let i=0;i<r.cols;i++)v.push(r.f(i));for(let k=0;k<v.length;k+=8)out.push([k?'':r.name+':','.word '+v.slice(k,k+8).join(', '),'# '+r.name+'['+k+'…'+Math.min(k+7,v.length-1)+']']);}
+  return out;
+}
+function asmText(dataRows,textRows){
+  const rows=[['','.data',''],...dataRows,['','.text',''],...textRows];
+  const lw=Math.max(...rows.map(r=>r[0].length))+1;
+  const cw=Math.max(...rows.map(r=>r[1].length))+3;
+  return rows.map(r=>{let t=(r[1]==='.data'||r[1]==='.text')?r[1]:(r[0].padEnd(lw)+r[1]);return r[2]?t.padEnd(r[1]==='.data'||r[1]==='.text'?0:lw+cw)+r[2]:t;}).join('\n');
+}
+const A4=[{name:'a',cols:4,f:i=>i+1}];
+const A16=[{name:'a',cols:16,f:i=>i+1}];
+const M84=[{name:'m',rows:8,cols:4,f:(i,j)=>10*i+j}];
+const PROGS={
+  1:{title:'Program 1: tablica dwa razy',arrs:A4,
+    desc:'Sumuje 4 kolejne elementy tablicy, a potem robi to jeszcze raz. Drugi przebieg czyta to samo co pierwszy (lokalność czasowa), a sąsiednie elementy leżą obok siebie w pamięci (lokalność przestrzenna).',
+    acc:s=>{const r=[];for(let k=0;k<2;k++)for(let i=0;i<4;i++)r.push(s.a+4*i);return r;},
+    c:'int sum = 0;\nfor (int r = 0; r < 2; r++)        // dwa przebiegi\n    for (int i = 0; i < 4; i++)    // element po elemencie\n        sum += a[i];',
+    asm:[['','li   x9, 2','# r: dwa przebiegi'],['outer:','la   x5, a','# p = &a[0]'],['','li   x6, 4','# i: 4 elementy'],['loop:','lw   x7, 0(x5)','# x7 = a[i]'],['','add  x10, x10, x7','# sum += a[i]'],['','addi x5, x5, 4','# i+1: następne słowo (+4 B)'],['','addi x6, x6, -1',''],['','bnez x6, loop',''],['','addi x9, x9, -1',''],['','bnez x9, outer','']]},
+  2:{title:'Program 2: co czwarty element',arrs:A16,
+    desc:'Sumuje tylko a[0], a[4], a[8] i a[12], dwa razy. Kolejne odczyty są od siebie o 16 B, więc nie korzystają z sąsiadów w bloku, a przy małym bloku trafiają w tę samą linię.',
+    acc:s=>{const r=[];for(let k=0;k<2;k++)for(let i=0;i<16;i+=4)r.push(s.a+4*i);return r;},
+    c:'int sum = 0;\nfor (int r = 0; r < 2; r++)        // dwa przebiegi\n    for (int i = 0; i < 16; i += 4) // co czwarty element\n        sum += a[i];',
+    asm:[['','li   x9, 2','# r: dwa przebiegi'],['outer:','la   x5, a','# p = &a[0]'],['','li   x6, 4','# 4 odczyty: a[0], a[4], a[8], a[12]'],['loop:','lw   x7, 0(x5)','# x7 = a[i]'],['','add  x10, x10, x7','# sum += a[i]'],['','addi x5, x5, 16','# i+4: przeskok o 4 słowa (+16 B)'],['','addi x6, x6, -1',''],['','bnez x6, loop',''],['','addi x9, x9, -1',''],['','bnez x9, outer','']]},
+  3:{title:'Program 3: macierz wierszami',arrs:M84,
+    desc:'Sumuje macierz 8 × 4 wiersz po wierszu. W C macierz leży w pamięci wierszami, więc kolejne odczyty to kolejne słowa (+4 B).',
+    acc:s=>{const r=[];for(let i=0;i<8;i++)for(let j=0;j<4;j++)r.push(s.m+4*(4*i+j));return r;},
+    c:'int sum = 0;\nfor (int i = 0; i < 8; i++)        // wiersze\n    for (int j = 0; j < 4; j++)    // kolumny\n        sum += m[i][j];',
+    asm:[['','la   x5, m','# x5 = &m[i][0], zaczynamy od i = 0'],['','li   x8, 8','# i: 8 wierszy'],['rows:','mv   x11, x5','# p = &m[i][0]'],['','li   x6, 4','# j: 4 kolumny'],['cols:','lw   x7, 0(x11)','# x7 = m[i][j]'],['','add  x10, x10, x7','# sum += m[i][j]'],['','addi x11, x11, 4','# j+1: sąsiednie słowo (+4 B)'],['','addi x6, x6, -1',''],['','bnez x6, cols',''],['','addi x5, x5, 16','# i+1: następny wiersz (+16 B)'],['','addi x8, x8, -1',''],['','bnez x8, rows','']]},
+  4:{title:'Program 4: macierz kolumnami',arrs:M84,
+    desc:'Ta sama macierz i ta sama suma, ale kolumna po kolumnie. Każdy kolejny odczyt przeskakuje o cały wiersz (+16 B), więc sąsiedzi w bloku czekają, aż wrócimy do nich w następnej kolumnie.',
+    acc:s=>{const r=[];for(let j=0;j<4;j++)for(let i=0;i<8;i++)r.push(s.m+4*(4*i+j));return r;},
+    c:'int sum = 0;\nfor (int j = 0; j < 4; j++)        // kolumny\n    for (int i = 0; i < 8; i++)    // wiersze\n        sum += m[i][j];',
+    asm:[['','la   x5, m','# x5 = &m[0][j], zaczynamy od j = 0'],['','li   x6, 4','# j: 4 kolumny'],['cols:','mv   x11, x5','# p = &m[0][j]'],['','li   x8, 8','# i: 8 wierszy'],['rows:','lw   x7, 0(x11)','# x7 = m[i][j]'],['','add  x10, x10, x7','# sum += m[i][j]'],['','addi x11, x11, 16','# i+1: następny wiersz (+16 B)'],['','addi x8, x8, -1',''],['','bnez x8, rows',''],['','addi x5, x5, 4','# j+1: następna kolumna (+4 B)'],['','addi x6, x6, -1',''],['','bnez x6, cols','']]}
+};
+function buildProg(id){
+  const P=PROGS[id],lay=layout(P.arrs);
+  const dataRows=[];P.arrs.forEach(r=>dataRows.push(...asmData(r)));
+  return {mem:lay.m,accesses:P.acc(lay.start),title:P.title,
+    c:P.arrs.map(cDecl).join('\n')+'\n\n'+P.c,
+    asm:asmText(dataRows,P.asm)};
+}
+function buildCustom(st,sd,n,p){
+  const off=(st-BASE)/4,S=sd/4,K=off+(n-1)*S+1;
+  const m=new Map();for(let k=0;k<K;k++)m.set(BASE+4*k,{name:'arr['+k+']',value:0});
+  const acc=[];for(let k=0;k<p;k++)for(let j=0;j<n;j++)acc.push(st+j*sd);
+  const idx=off?(off+' + i * '+S):(S===1?'i':'i * '+S);
+  const c='int arr['+K+'];                     // same zera\nint sum = 0;\nfor (int r = 0; r < '+p+'; r++)        // przebiegi\n    for (int i = 0; i < '+n+'; i++)\n        sum += arr['+idx+'];      // krok '+sd+' B = '+words(sd);
+  const t=[['','li   x9, '+p,'# r: liczba przebiegów'],['outer:','la   x5, arr','# p = &arr[0]']];
+  if(off) t.push(['','addi x5, x5, '+(off*4),'# start: &arr['+off+']']);
+  t.push(['','li   x6, '+n,'# i: odczytów na przebieg'],['loop:','lw   x7, 0(x5)','# x7 = arr[…]'],['','add  x10, x10, x7','# sum += …']);
+  if(sd<=2047) t.push(['','addi x5, x5, '+sd,'# krok: +'+sd+' B']); else t.push(['','li   x12, '+sd,''],['','add  x5, x5, x12','# krok: +'+sd+' B']);
+  t.push(['','addi x6, x6, -1',''],['','bnez x6, loop',''],['','addi x9, x9, -1',''],['','bnez x9, outer','']);
+  return {mem:m,accesses:acc,title:'Własna sekwencja: start '+hex(st,8)+', krok '+sd+' B, '+n+' × '+p,c,asm:asmText([['arr:','.zero '+(K*4),'# '+K+' słów']],t)};
+}
+
+/* ---------- symulacja ---------- */
+function simRate(acc,l,b){const c=Array.from({length:l},()=>({v:0,t:0}));let h=0;acc.forEach(a=>{const bl=Math.floor(a/b),i=bl%l,t=Math.floor(bl/l);if(c[i].v&&c[i].t===t)h++;else c[i]={v:1,t};});return acc.length?h/acc.length:0;}
+function resetCache(){
+  lines=Array.from({length:L},()=>({v:false,tag:0,block:0}));
+  hist=[];seen=new Set();last=null;rowBase=null;
+  $('capacity').innerHTML='Pojemność: '+L+' linii × '+words(B)+' = '+(L*B/4)+' słów = <span class="mono">'+(L*B)+' B</span>. Słowo ma 4 B, więc najmniejszy blok to 1 słowo. Adres: <span class="t">tag</span> | <span class="i">index '+log2(L)+' b</span> | <span class="o">offset '+log2(B)+' b</span>.';
+}
+function restart(){
+  resetCache();
+  if(source){const b=source.type==='prog'?buildProg(source.id):buildCustom(...source.args);
+    mem=b.mem;queue=b.accesses.slice();total=queue.length;code=b;showCode();showExpect(b.accesses);}
+  else{queue=[];total=0;}
+  render();
+}
+function access(addr){
+  const block=Math.floor(addr/B), line=block%L, tag=Math.floor(block/L), e=lines[line];
+  const hit=e.v&&e.tag===tag;
+  let why;
+  if(hit) why='linia '+line+' ma już tag '+hex(tag);
+  else if(!e.v) why=seen.has(block)?'linia była pusta':'pierwszy odczyt bloku, linia była pusta';
+  else why=(seen.has(block)?'blok był już w cache, ale został wyrzucony; ':'pierwszy odczyt bloku; ')+'wyrzuca blok '+e.block+' (tag '+hex(e.tag)+')';
+  if(!hit){e.v=true;e.tag=tag;e.block=block;}
+  seen.add(block);
+  last={addr,block,line,tag,hit,why,w:word(addr)};
+  hist.push(last);
+}
+
+/* ---------- widok ---------- */
+function hl(text,cm,kw){
+  return text.split('\n').map(line=>{
+    const i=line.indexOf(cm);const code=i<0?line:line.slice(0,i),com=i<0?'':line.slice(i);
+    let h=esc(code).replace(kw,'<span class="k">$1</span>').replace(/(\.data|\.text|\.word|\.zero)/g,'<span class="n">$1</span>');
+    return h+(com?'<span class="c">'+esc(com)+'</span>':'');
+  }).join('\n');
+}
+function showCode(){
+  if(!code)return;
+  $('codeTitle').textContent=code.title;
+  $('cBox').innerHTML=hl(code.c,'//',/\b(int|for)\b/g);
+  $('asmBox').innerHTML=hl(code.asm,'#',/\b(li|la|lw|add|addi|bnez|mv)\b/g);
+  $('codeNote').textContent='W Ripes, zakładka Cache, data cache: 1 way, '+L+' linii ('+log2(L)+' w polu 2^N Sets), '+words(B)+' na linię ('+log2(B/4)+' w polu 2^N Words per Line). Tablice zaczynają się pod 0x10000000, domyślnym początkiem sekcji .data w Ripes. Rejestr x10 trzyma sum.';
+  $('codePanel').style.display='';
+}
+function showExpect(acc){
+  if(!source||source.type!=='prog'){$('progExp').style.display='none';return;}
+  $('progExp').style.display='';
+  $('progExpBody').innerHTML='Przy '+L+' liniach:<br>'+[4,16].map(b=>'blok '+words(b)+': <b class="mono">'+pct(simRate(acc,L,b))+'</b>').join('<br>');
+}
+function renderLast(){
+  const el=$('last');
+  if(!last){el.innerHTML='<p class="empty">Wybierz program i kliknij „Krok”, wpisz adres w „Pojedynczy odczyt” albo kliknij blok w siatce pamięci.</p>';return;}
+  const a=last.addr, ob=log2(B), ib=log2(L);
+  let bits='',nums='';
+  for(let k=31;k>=0;k--){
+    const b=Math.floor(a/Math.pow(2,k))%2;
+    const c=k<ob?'o':(k<ob+ib?'i':'t');
+    const g=(k<31&&(k+1)%4===0)?' gap':'';
+    bits+='<span class="bit '+c+g+'">'+b+'</span>';
+    nums+='<span class="'+g.trim()+'">'+(k%4===0?k:'')+'</span>';
+  }
+  const res=last.hit?'<span class="badge hit">HIT</span>':'<span class="badge miss">MISS</span>';
+  el.innerHTML=
+    '<div class="addr-head"><div class="addr-big">'+hex(a,8)+' <span style="font-size:15px;color:var(--muted)">= '+a+'</span></div>'+res+'</div>'+
+    '<p class="valline">lw odczytuje: <b class="mono">'+esc(wordLabel(last.w))+'</b></p>'+
+    '<div class="bits-scroll"><div class="bits">'+bits+'</div><div class="bitnums">'+nums+'</div></div>'+
+    '<div class="legend"><span><i class="sw" style="background:var(--tag)"></i><b class="t">tag</b> bity 31–'+(ob+ib)+'</span>'+
+    (ib?'<span><i class="sw" style="background:var(--idx)"></i><b class="i">index (linia)</b> bity '+(ob+ib-1)+'–'+ob+'</span>':'<span class="i">index: 0 bitów (jedna linia)</span>')+
+    '<span><i class="sw" style="background:var(--off)"></i><b class="o">offset</b> bity '+(ob-1)+'–0</span></div>'+
+    '<div class="calc">blok &nbsp;= ⌊adres / rozmiar bloku⌋ = ⌊'+a+' / '+B+'⌋ <span style="color:var(--muted)">('+words(B)+' = '+B+' B)</span> = <b>'+last.block+'</b><br>'+
+    '<span class="i">linia</span> = blok mod liczba linii = '+last.block+' mod '+L+' = <b class="i">'+last.line+'</b><br>'+
+    '<span class="t">tag</span> &nbsp;&nbsp;= ⌊blok / liczba linii⌋ = ⌊'+last.block+' / '+L+'⌋ = <b class="t">'+last.tag+'</b> ('+hex(last.tag)+')<br>'+
+    '<span class="o">offset</span> = adres mod rozmiar bloku = '+a+' mod '+B+' = <b class="o">'+(a%B)+'</b> (bajt w linii'+(B>4?', słowo nr '+Math.floor((a%B)/4):'')+')</div>'+
+    '<p class="why">'+(last.hit?'Hit: ':'Miss: ')+esc(last.why)+'.</p>';
+}
+function renderCache(){
+  const W=B/4;
+  let h='<tr><th>Linia</th><th>Valid</th><th>Tag</th><th>Blok</th><th>Adresy</th>';
+  for(let k=0;k<W;k++)h+='<th>Słowo '+k+'</th>';
+  $('cacheHead').innerHTML=h+'</tr>';
+  h='';
+  for(let i=0;i<L;i++){
+    const e=lines[i];
+    const cur=last&&last.line===i?(last.hit?' class="cur-hit"':' class="cur-miss"'):'';
+    if(!e.v){h+='<tr'+cur+'><td class="i">'+i+'</td><td class="dim">0</td><td class="dim">–</td><td class="dim">–</td><td class="dim">pusta</td>'+'<td class="w dim">–</td>'.repeat(W)+'</tr>';continue;}
+    const a0=e.block*B;
+    h+='<tr'+cur+'><td class="i">'+i+'</td><td>1</td><td class="t">'+hex(e.tag)+'</td><td>'+e.block+'</td><td>'+hex(a0,8)+(B>4?' – '+hex(a0+B-1,8):'')+'</td>';
+    for(let k=0;k<W;k++){
+      const wa=a0+4*k,w=word(wa);
+      const acc=last&&last.line===i&&Math.floor(last.addr/4)*4===wa;
+      h+='<td class="w'+(w.name?'':' dim')+(acc?' acc':'')+'">'+esc(wordLabel(w))+'</td>';
+    }
+    h+='</tr>';
+  }
+  $('cacheBody').innerHTML=h;
+}
+function renderGrid(){
+  const maxRow=Math.floor(Math.floor(MAXA/B)/L);
+  if(rowBase===null){
+    const tags=lines.filter(e=>e.v).map(e=>e.tag);
+    if(last) tags.push(last.tag);
+    else if(queue.length) tags.push(Math.floor(Math.floor(queue[0]/B)/L));
+    if(tags.length){
+      const lo=Math.min(...tags),hi=Math.max(...tags);
+      rowBase=(hi-lo+1<=ROWS)?lo:Math.max(0,(last?last.tag:lo)-3);
+    } else rowBase=Math.floor(Math.floor(BASE/B)/L);
+  }
+  rowBase=Math.max(0,Math.min(rowBase,maxRow-ROWS+1));
+  const g=$('mgrid');
+  g.style.gridTemplateColumns='auto repeat('+L+',minmax(max-content,1fr))';
+  let h='<div></div>';
+  for(let c=0;c<L;c++) h+='<div class="hd">linia '+c+'</div>';
+  for(let r=rowBase;r<rowBase+ROWS&&r<=maxRow;r++){
+    h+='<div class="rl">tag '+hex(r)+'</div>';
+    for(let c=0;c<L;c++){
+      const b=r*L+c;
+      let cls='cell';
+      if(last&&b===last.block) cls+=' now';
+      else if(lines[c].v&&lines[c].tag===r) cls+=' in';
+      else if(last&&c===last.line) cls+=' col';
+      const w=word(b*B);
+      h+='<button class="'+cls+'" data-b="'+b+'" title="blok '+b+' | adresy '+hex(b*B,8)+' – '+hex(b*B+B-1,8)+(w.name?' | zaczyna się od '+w.name:'')+'">blok '+b+'</button>';
+    }
+  }
+  g.innerHTML=h;
+}
+function renderHist(){
+  const n=hist.length,hts=hist.filter(x=>x.hit).length;
+  $('stN').textContent=n;$('stH').textContent=hts;$('stM').textContent=n-hts;
+  $('stR').textContent=n?pct(hts/n):'–';
+  let h='';
+  const from=Math.max(0,n-400);
+  for(let k=n-1;k>=from;k--){
+    const x=hist[k];
+    h+='<tr><td class="dim">'+(k+1)+'</td><td>'+hex(x.addr,8)+'</td><td>'+esc(wordLabel(x.w))+'</td><td>'+x.block+'</td><td class="i">'+x.line+'</td><td class="t">'+hex(x.tag)+'</td><td class="hm '+(x.hit?'h">H':'m">M')+'</td><td style="font-family:var(--sans)">'+esc(x.why)+'</td></tr>';
+  }
+  if(!n) h='<tr><td colspan="8" class="dim" style="font-family:var(--sans)">Brak odczytów.</td></tr>';
+  $('histBody').innerHTML=h;
+}
+function render(){
+  renderLast();renderCache();renderGrid();renderHist();
+  $('queueInfo').textContent=!source?'Nic nie jest załadowane. Wybierz program albo własną sekwencję.':
+    (queue.length?('Wykonano '+(total-queue.length)+' z '+total+' odczytów.'):('Koniec: wykonano wszystkie '+total+' odczytów.'));
+  document.querySelectorAll('.progs button').forEach(b=>b.classList.toggle('on',!!source&&source.type==='prog'&&source.id===b.dataset.p));
+}
+
+/* ---------- zdarzenia ---------- */
+$('lines').onchange=e=>{L=+e.target.value;restart();};
+$('bsize').onchange=e=>{B=+e.target.value;restart();};
+document.querySelectorAll('.progs button').forEach(b=>b.onclick=()=>{
+  source={type:'prog',id:b.dataset.p};
+  $('progDesc').textContent=PROGS[b.dataset.p].desc;
+  $('progExp').open=false;
+  restart();
+});
+$('loadBtn').onclick=()=>{
+  const st=parse($('sStart').value),sd=parse($('sStride').value),n=parse($('sN').value),p=parse($('sPasses').value);
+  const err=m=>{$('seqErr').textContent=m;};
+  if(st===null||sd===null||n===null||p===null||n<1||p<1) return err('Uzupełnij wszystkie pola liczbami (adres może być w hex).');
+  if(st<BASE) return err('Adres początkowy musi być co najmniej 0x10000000 (początek arr).');
+  if(st%4||sd%4) return err('lw czyta całe słowa, więc adres i krok muszą być wielokrotnością 4.');
+  if(n*p>5000) return err('Maksymalnie 5000 odczytów naraz.');
+  if(st+sd*(n-1)>MAXA) return err('Sekwencja wychodzi poza 0xFFFFFFFF.');
+  if((st-BASE)+sd*n>4*1024*1024) return err('Tablica wyszłaby większa niż 4 MB. Zmniejsz krok albo liczbę odczytów.');
+  err('');
+  source={type:'custom',args:[st,sd,n,p]};
+  $('progDesc').textContent='Załadowano własną sekwencję. Wybierz program, żeby wrócić do gotowych przykładów.';
+  restart();
+};
+$('stepBtn').onclick=()=>{if(!queue.length)return;const a=queue.shift();$('addr').value=hex(a,8);access(a);rowBase=null;render();};
+$('allBtn').onclick=()=>{if(!queue.length)return;let a;while(queue.length){a=queue.shift();access(a);}$('addr').value=hex(a,8);rowBase=null;render();};
+$('restartBtn').onclick=restart;
+$('readBtn').onclick=()=>{
+  const v=parse($('addr').value);
+  if(v===null){$('addrErr').textContent='Podaj adres od 0 do 0xFFFFFFFF, np. 0x10000040 albo 64.';return;}
+  $('addrErr').textContent='';access(v);rowBase=null;render();
+};
+$('addr').addEventListener('keydown',e=>{if(e.key==='Enter')$('readBtn').click();});
+$('addr').addEventListener('input',()=>{$('addrErr').textContent='';});
+$('mgrid').addEventListener('click',e=>{
+  const c=e.target.closest('.cell');if(!c)return;
+  const addr=+c.dataset.b*B;$('addr').value=hex(addr,8);
+  access(addr);render();
+});
+$('upBtn').onclick=()=>{rowBase=Math.max(0,(rowBase||0)-ROWS);renderGrid();};
+$('downBtn').onclick=()=>{rowBase=(rowBase||0)+ROWS;renderGrid();};
+document.querySelectorAll('[data-copy]').forEach(btn=>btn.onclick=async()=>{
+  if(!code)return;const txt=btn.dataset.copy==='c'?code.c:code.asm;
+  try{await navigator.clipboard.writeText(txt);}
+  catch(e){const t=document.createElement('textarea');t.value=txt;document.body.appendChild(t);t.select();try{document.execCommand('copy');}catch(_){}t.remove();}
+  btn.textContent='Skopiowano';setTimeout(()=>{btn.textContent='Kopiuj';},1500);
+});
+
+restart();
+})();
+</script>
+</body>
+</html>
